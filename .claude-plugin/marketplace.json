@@ -1,0 +1,15 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "bank-statement-parser",
+  "owner": {
+    "name": "sameersegal",
+    "url": "https://github.com/sameersegal"
+  },
+  "plugins": [
+    {
+      "name": "bank-statement-parser",
+      "source": "./",
+      "description": "Skills for parsing brokerage PDF statements into structured JSON"
+    }
+  ]
+}

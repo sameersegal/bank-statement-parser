@@ -1,0 +1,8 @@
+{
+  "name": "bank-statement-parser",
+  "description": "Skills for parsing brokerage PDF statements into structured JSON — supports IBKR and Schwab",
+  "version": "1.0.0",
+  "author": {
+    "name": "sameersegal"
+  }
+}

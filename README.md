@@ -53,35 +53,32 @@ Each PDF produces a `.json` file alongside it with the same base name:
 
 ```
 bank-statement-parser/
-├── data/                          # Statement PDFs and parsed JSON (gitignored)
+├── data/                          # Statement PDFs, parsed JSON, and results (gitignored)
 │   ├── <broker>/
 │   │   ├── train/                 # Training statements (used for learning)
-│   │   └── test/                  # Test statements (used for validation)
+│   │   ├── test/                  # Test statements (used for validation)
+│   │   └── results/               # Learning epoch results
+│   │       ├── epoch-1/
+│   │       └── learning-log.md
 │
-├── .claude/
-│   ├── skills/
-│   │   ├── statement-parsing/     # Main parsing skill
-│   │   │   ├── SKILL.md
-│   │   │   └── references/
-│   │   │       ├── output-schema.md    # JSON output contract
-│   │   │       ├── ibkr.md            # IBKR format reference (learned)
-│   │   │       └── schwab.md          # Schwab format reference (learned)
-│   │   │
-│   │   └── statement-parsing-learning/  # Meta-learning skill
-│   │       ├── SKILL.md
-│   │       └── references/
-│   │           ├── epoch-workflow.md
-│   │           ├── self-review-checklist.md
-│   │           └── accuracy-metrics.md
+├── .claude-plugin/                # Plugin manifest (cross-tool compatibility)
+│   ├── plugin.json
+│   └── marketplace.json
+│
+├── skills/
+│   ├── statement-parsing/         # Main parsing skill
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       ├── output-schema.md        # JSON output contract
+│   │       ├── ibkr.md                # IBKR format reference (learned)
+│   │       └── schwab.md              # Schwab format reference (learned)
 │   │
-│   └── results/                   # Learning epoch results (gitignored)
-│       └── <broker>/
-│           ├── epoch-1/
-│           │   ├── self-review-errors.json
-│           │   ├── pattern-analysis.md
-│           │   ├── test-errors.json
-│           │   └── summary.md
-│           └── learning-log.md
+│   └── statement-parsing-learning/    # Meta-learning skill
+│       ├── SKILL.md
+│       └── references/
+│           ├── epoch-workflow.md
+│           ├── self-review-checklist.md
+│           └── accuracy-metrics.md
 │
 ├── .gitignore
 └── README.md
@@ -112,7 +109,7 @@ Place 3-6 monthly statements in `train/` and 1-2 in `test/`. Choose statements w
 
 ### 2. Create the Broker Reference Skeleton
 
-Create `.claude/skills/statement-parsing/references/<broker>.md`:
+Create `skills/statement-parsing/references/<broker>.md`:
 
 ```markdown
 # <Broker Name> Statement Reference
@@ -180,6 +177,10 @@ Each epoch builds on the previous one — the reference gets more precise, and e
 | `withdrawal` | Wire transfers out, disbursements |
 | `forex` | Foreign exchange transactions |
 | `other` | Fee waivers, adjustments, miscellaneous |
+
+## Cross-Tool Compatibility
+
+This repo follows the [`.claude-plugin` convention](https://github.com/cloudflare/skills) — skills live in `skills/` at the root with a `.claude-plugin/` manifest. This structure is discoverable by Claude Code, Codex, and other tools that support the Agent Skills open standard.
 
 ## Verification
 

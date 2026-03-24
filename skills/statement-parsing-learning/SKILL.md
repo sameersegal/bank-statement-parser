@@ -21,9 +21,9 @@ You run iterative learning epochs that improve the parsing quality for a specifi
 
 ### Step 1: Determine Epoch Number
 
-Check `.claude/results/<broker>/` for existing epoch directories. The new epoch is `epoch-<N>` where N is the next integer (starting from 1).
+Check `data/<broker>/results/` for existing epoch directories. The new epoch is `epoch-<N>` where N is the next integer (starting from 1).
 
-Create the directory: `.claude/results/<broker>/epoch-<N>/`
+Create the directory: `data/<broker>/results/epoch-<N>/`
 
 ### Step 2: Parse Train Set
 
@@ -39,7 +39,7 @@ For EACH training PDF, perform a detailed self-review:
 2. Read the generated JSON file.
 3. Compare them section by section using `@references/self-review-checklist.md`.
 4. Record every discrepancy as a structured error entry.
-5. Write all errors to `.claude/results/<broker>/epoch-<N>/self-review-errors.json`.
+5. Write all errors to `data/<broker>/results/epoch-<N>/self-review-errors.json`.
 
 Be meticulous. Read every number, every date, every ticker. The goal is to catch ALL errors, not just obvious ones.
 
@@ -50,11 +50,11 @@ Analyze errors across all train files:
 - Group by error type (see `@references/accuracy-metrics.md` for categories).
 - Look for patterns: Are the same sections consistently misread? Are certain number formats always wrong?
 - Identify root causes: Is it a section header issue? A number format issue? A date format issue?
-- Write analysis to `.claude/results/<broker>/epoch-<N>/pattern-analysis.md`.
+- Write analysis to `data/<broker>/results/epoch-<N>/pattern-analysis.md`.
 
 ### Step 5: Update Broker Reference
 
-Edit the broker reference file at `.claude/skills/statement-parsing/references/<broker>.md`:
+Edit the broker reference file at `skills/statement-parsing/references/<broker>.md`:
 
 - Document discovered section headers with their exact text from the PDFs.
 - Add number format rules (e.g., negatives in parentheses, comma separators).
@@ -83,7 +83,7 @@ Run `/statement-parsing` again on the train set to validate improvements:
 - Compare new results against previously identified errors.
 - Check which errors are now fixed.
 - Check for any new regressions.
-- Write results to `.claude/results/<broker>/epoch-<N>/validation-results.md`.
+- Write results to `data/<broker>/results/epoch-<N>/validation-results.md`.
 
 ### Step 8: Parse and Review Test Set
 
@@ -91,12 +91,12 @@ Run `/statement-parsing` on `data/<broker>/test/`:
 
 - Parse all test PDFs.
 - Perform the same self-review process as Step 3.
-- Write errors to `.claude/results/<broker>/epoch-<N>/test-errors.json`.
+- Write errors to `data/<broker>/results/epoch-<N>/test-errors.json`.
 - This measures whether learned patterns generalize to unseen statements.
 
 ### Step 9: Write Epoch Summary
 
-Create `.claude/results/<broker>/epoch-<N>/summary.md` with:
+Create `data/<broker>/results/epoch-<N>/summary.md` with:
 
 1. Epoch number, broker, and date
 2. Train set metrics (per `@references/accuracy-metrics.md`)
@@ -108,7 +108,7 @@ Create `.claude/results/<broker>/epoch-<N>/summary.md` with:
 
 ### Step 10: Update Learning Log
 
-Append a one-line entry to `.claude/results/<broker>/learning-log.md`:
+Append a one-line entry to `data/<broker>/results/learning-log.md`:
 
 ```
 | Epoch | Date | Train F1 | Test F1 | Errors Fixed | Notes |

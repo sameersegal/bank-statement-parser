@@ -47,7 +47,8 @@ Use the Read tool to read the PDF file. Then extract:
 
 1. **Account metadata**: broker name, account ID, statement period (from/to dates)
 2. **Position transactions**: all buy/sell trades — capture date, type (buy/sell), ticker, quantity, price, amount, currency
-3. **Cash transactions**: all non-trade cash movements — dividends, interest, fees, deposits, withdrawals, forex, taxes
+3. **Cash transactions**: a complete cash ledger — includes dividends, interest, fees, deposits, withdrawals, forex, taxes, AND the cash impact of every trade (buy/sell). Each position transaction must have a corresponding cash transaction entry with the same date and amount.
+4. **Lot actions**: corporate actions that change positions without a trade — stock splits, bonus issues, mergers, class reorganizations. No cash impact.
 
 Follow the broker reference guidance for locating sections and interpreting formats.
 
@@ -65,6 +66,8 @@ After writing, perform basic validation:
 - Dates in correct format
 - Amounts are numeric
 - No duplicate transactions
+- **Cash reconciliation**: `Starting Cash + sum(cash_transactions[].amount) = Ending Cash`
+- Every position_transaction has a matching cash_transaction (same date, amount, type)
 
 Report a summary to the user:
 ```
@@ -73,6 +76,7 @@ Parsed: <filename>
   Period: <from> to <to>
   Position transactions: <count>
   Cash transactions: <count>
+  Lot actions: <count>
   Output: <json_path>
 ```
 
@@ -81,9 +85,9 @@ Parsed: <filename>
 When processing multiple files, parse them sequentially. After all files are done, print a summary table:
 
 ```
-| File | Account | Period | Positions | Cash | Status |
-|------|---------|--------|-----------|------|--------|
-| ...  | ...     | ...    | ...       | ...  | OK/ERR |
+| File | Account | Period | Positions | Cash | Lot Actions | Status |
+|------|---------|--------|-----------|------|-------------|--------|
+| ...  | ...     | ...    | ...       | ...  | ...         | OK/ERR |
 ```
 
 ## Error Handling

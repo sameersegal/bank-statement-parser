@@ -51,7 +51,7 @@ Provides a single-line reconciliation:
 Beginning Cash + Deposits + Withdrawals + Purchases + Sales/Redemptions + Dividends/Interest + Expenses = Ending Cash
 ```
 
-**Always verify**: Sum of all position and cash transactions must reconcile with this summary.
+**Always verify**: `Starting Cash + sum(cash_transactions[].amount) = Ending Cash` — cash_transactions alone must balance. Purchases and Sales/Redemptions appear as `buy`/`sell` type cash_transactions.
 
 ### Transaction Details
 
@@ -86,11 +86,11 @@ This is the critical mapping from Schwab's Category/Action columns to our schema
 | Purchase | *(direct purchase)* | `buy` | T-bill or stock purchase |
 | Sale | *(stock sale)* | `sell` | Quantity is negative in PDF, use absolute value |
 
-### Skip (No Cash Impact)
+### Lot Actions (Corporate Actions)
 
-| Category | Action | Handling |
-|----------|--------|----------|
-| Other Activity | Stock Split | Skip — no cash impact, no position_transaction |
+| Category | Action | → Schema | Notes |
+|----------|--------|----------|-------|
+| Other Activity | Stock Split | `lot_action` type=split | Extract ticker and description; no cash impact |
 
 ## Extracting Position Transactions
 
@@ -163,7 +163,7 @@ A "Pending / Open Activity" section may appear showing unsettled dividends. Thes
 
 ## Edge Cases
 
-1. **Stock splits**: Category "Other Activity", Action "Stock Split" — no cash impact, no amount. Skip entirely.
+1. **Stock splits**: Category "Other Activity", Action "Stock Split" — no cash impact, no amount. Extract as a `lot_action` with type `split`. Parse ticker from Symbol/CUSIP and description from the Description column.
 2. **Industry Fee on sales**: The Charges/Interest column may show a small fee (e.g., $0.01). This is already deducted from the Amount column. Do NOT record as a separate fee.
 3. **Wire fee waivers**: Always paired with the fee, netting to zero. Record both individually.
 4. **Multiple accounts**: Schwab statements are per-account. Different accounts (individual vs joint) may have different features (e.g., DRIP enabled only on the joint account).

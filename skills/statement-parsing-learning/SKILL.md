@@ -37,7 +37,7 @@ For EACH training PDF, perform a detailed self-review:
 
 1. Re-read the PDF using the Read tool.
 2. Read the generated JSON file.
-3. Compare them section by section using `@references/self-review-checklist.md`.
+3. Compare them section by section using `@references/self-review-checklist.md`. Verify that any corporate actions (stock splits, mergers, bonus issues) in the PDF are captured as `lot_actions`.
 4. Record every discrepancy as a structured error entry.
 5. Write all errors to `data/<broker>/results/epoch-<N>/self-review-errors.json`.
 

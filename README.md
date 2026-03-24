@@ -1,6 +1,6 @@
 # Statement Parser
 
-AI-powered brokerage statement parser built as [Claude Code](https://claude.ai/claude-code) skills. Reads PDF statements from multiple brokers and extracts structured JSON with account metadata, position transactions (buys/sells), and cash transactions (dividends, interest, taxes, fees, withdrawals).
+AI-powered brokerage statement parser built as [Claude Code](https://claude.ai/claude-code) skills. Reads PDF statements from multiple brokers and extracts structured JSON with account metadata, position transactions (buys/sells), cash transactions (dividends, interest, taxes, fees, withdrawals), and lot actions (stock splits, mergers, and other corporate actions).
 
 ## Supported Brokers
 
@@ -45,6 +45,9 @@ Each PDF produces a `.json` file alongside it with the same base name:
     { "date": "2025-09-04", "type": "interest", "description": "USD Credit Interest for Aug-2025", "amount": 1781.70, "currency": "USD" },
     { "date": "2025-09-15", "type": "dividend", "description": "GOOG Cash Dividend USD 0.21 per Share", "amount": 412.23, "currency": "USD" },
     { "date": "2025-09-15", "type": "tax", "description": "GOOG Withholding Tax", "amount": -103.06, "currency": "USD" }
+  ],
+  "lot_actions": [
+    { "date": "2025-10-15", "type": "split", "ticker": "AAPL", "description": "Stock Split 4:1", "ratio_from": 1, "ratio_to": 4, "currency": "USD" }
   ]
 }
 ```
@@ -165,10 +168,22 @@ Each epoch builds on the previous one — the reference gets more precise, and e
 | `buy` | Stock purchase, bond purchase, T-bill purchase, DRIP reinvestment |
 | `sell` | Stock sale, bond redemption/maturity |
 
-### Cash Transactions
+### Lot Actions (Corporate Actions)
+
+| Type      | Description                                     |
+|-----------|-------------------------------------------------|
+| `split`   | Stock split (e.g., 4:1)                         |
+| `bonus`   | Bonus share issue                                |
+| `merger`  | Merger/acquisition (security changes)            |
+| `reorg`   | Class reorganization                             |
+| `transfer`| Position transfer between accounts               |
+
+### Cash Transactions (complete cash ledger)
 
 | Type | Description |
 |------|-------------|
+| `buy` | Cash impact of a purchase (mirrors position_transaction) |
+| `sell` | Cash impact of a sale/redemption (mirrors position_transaction) |
 | `dividend` | Cash dividends (qualified, ordinary, reinvested) |
 | `interest` | Broker interest, bond coupon payments, purchase accrued interest |
 | `tax` | Withholding tax (NRA tax, US tax on dividends/interest) |
@@ -187,7 +202,7 @@ This repo follows the [`.claude-plugin` convention](https://github.com/cloudflar
 Every parsed statement is cross-checked against the statement's own cash summary:
 
 ```
-Starting Cash + Position Transactions + Cash Transactions = Ending Cash
+Starting Cash + sum(cash_transactions[].amount) = Ending Cash
 ```
 
-This ensures no transactions are missed or double-counted.
+Cash transactions form a complete, self-contained ledger — trade amounts appear in both `position_transactions` and `cash_transactions` so the cash side balances on its own.

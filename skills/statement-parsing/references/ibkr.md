@@ -72,10 +72,11 @@ The **Cash Report** section under "Base Currency Summary" provides line-item tot
 | Other Fees | Sum of ADR fees and similar |
 | Withholding Tax | Sum of all tax cash_transactions |
 | Commissions | Sum of all commission fees |
-| Trades (Purchase) | Sum of all position_transactions amounts |
+| Trades (Purchase) | Sum of `buy` cash_transactions |
+| Trades (Sales) | Sum of `sell` cash_transactions |
 | Ending Cash | Should equal Starting + all above |
 
-**Always verify**: `Starting Cash + sum(all cash & position txns) = Ending Cash`
+**Always verify**: `Starting Cash + sum(cash_transactions[].amount) = Ending Cash` — cash_transactions alone must balance.
 
 ## Extracting Position Transactions (Trades)
 
@@ -186,3 +187,4 @@ The Cash Report lists this under "Bond Interest Paid and Received" (positive whe
 4. **No Fees section**: When no fees occurred, the Fees section is absent.
 5. **Corporate action date vs. event date**: Bond redemptions may have a Date/Time in the prior month (e.g., 2026-01-30) but a Report Date in the current month (e.g., 2026-02-02). Use the Report Date.
 6. **Bond coupon + redemption same day**: When a bond matures, both the final coupon payment and the redemption proceeds appear in the same statement.
+7. **Stock splits / corporate actions**: If encountered, stock splits, mergers, or other corporate actions that change position quantity without a trade should be extracted as `lot_actions` (not position_transactions). Bond maturities/redemptions remain as `sell` trades. No stock split examples observed in training data yet.

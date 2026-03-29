@@ -6,7 +6,7 @@ Every parsed statement MUST produce a JSON file conforming to this schema.
 
 ```json
 {
-  "broker": "ibkr | schwab",
+  "broker": "ibkr | schwab | fidelity",
   "account_id": "string",
   "period": {
     "from": "YYYY-MM-DD",
@@ -68,7 +68,7 @@ Lot actions have no cash impact. They change position quantities only.
 2. All amounts are numeric (no commas or currency symbols).
 3. `position_transactions.amount` sign convention: negative for purchases (cash outflow), positive for sales (cash inflow).
 4. `cash_transactions.amount` sign convention: positive for inflows (dividends, deposits, sales), negative for outflows (fees, withdrawals, taxes, purchases).
-5. Every `position_transaction` must have a corresponding `cash_transaction` with the same date, amount, and type (`buy`/`sell`).
+5. Every `position_transaction` must have a corresponding `cash_transaction` with the same date, amount, and type (`buy`/`sell`). **Exception**: For Fidelity Stock Plan accounts, ESPP purchases and stock option exercises are externally funded (payroll deductions / exercise proceeds) and do NOT have matching `cash_transaction` entries. Only transactions that affect the core cash account (FDRXX) appear in `cash_transactions`.
 6. Forex transactions record the net cash effect in the target currency.
 7. If a field cannot be determined, use `null` rather than omitting it.
 8. The JSON file is written alongside the PDF with the same base name and `.json` extension.

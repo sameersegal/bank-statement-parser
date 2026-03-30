@@ -3,7 +3,7 @@ name: statement-parsing-learning
 description: Iterative learning loop that improves broker-specific parsing by training on PDFs and refining reference guides
 user-invocable: true
 invocation: /statement-parsing-learning <broker>
-argument-description: Broker name (ibkr, schwab, or fidelity) to run a learning epoch for
+argument-description: Broker name (ibkr, schwab, fidelity, or dbs-sg) to run a learning epoch for
 disable-model-invocation: true
 ---
 

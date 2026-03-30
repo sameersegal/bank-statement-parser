@@ -3,7 +3,7 @@ name: statement-parsing
 description: Parse brokerage PDF statements into structured JSON
 user-invocable: true
 invocation: /statement-parsing <path-or-broker>
-argument-description: A PDF file path, a directory of PDFs, or a broker name (ibkr/schwab) to parse all train+test files for that broker
+argument-description: A PDF file path, a directory of PDFs, or a broker name (ibkr/schwab/fidelity/dbs-sg) to parse all train+test files for that broker
 ---
 
 # Statement Parsing Skill
@@ -16,7 +16,7 @@ The user provides `<path-or-broker>` which can be:
 
 1. **A single PDF file path** — parse that one file
 2. **A directory path** — parse all `.pdf`/`.PDF` files in that directory (non-recursive)
-3. **A broker name** (`ibkr` or `schwab`) — parse all PDFs under `data/<broker>/` (recursive, both train and test)
+3. **A broker name** (`ibkr`, `schwab`, `fidelity`, or `dbs-sg`) — parse all PDFs under `data/<broker>/` (recursive, both train and test)
 
 ## Workflow
 
@@ -29,13 +29,17 @@ Resolve the input to a list of PDF file paths. If a broker name is given, glob f
 For each PDF, determine the broker:
 - If the path contains `ibkr` → Interactive Brokers
 - If the path contains `schwab` → Charles Schwab
-- Otherwise, read the first page of the PDF and look for broker-identifying text ("Interactive Brokers", "Charles Schwab", etc.)
+- If the path contains `fidelity` → Fidelity Stock Plan Services
+- If the path contains `dbs-sg` → DBS Singapore (Treasures)
+- Otherwise, read the first page of the PDF and look for broker-identifying text ("Interactive Brokers", "Charles Schwab", "DBS Treasures", etc.)
 
 ### Step 3: Load Broker Reference
 
 Read the broker-specific reference file:
 - IBKR: `@references/ibkr.md`
 - Schwab: `@references/schwab.md`
+- Fidelity: `@references/fidelity.md`
+- DBS-SG: `@references/dbs-sg.md`
 
 Also load the output schema: `@references/output-schema.md`
 

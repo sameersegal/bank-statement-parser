@@ -6,7 +6,7 @@ Every parsed statement MUST produce a JSON file conforming to this schema.
 
 ```json
 {
-  "broker": "ibkr | schwab | fidelity",
+  "broker": "ibkr | schwab | fidelity | dbs-sg",
   "account_id": "string",
   "period": {
     "from": "YYYY-MM-DD",

@@ -15,6 +15,7 @@ Every parsed statement MUST produce a JSON file conforming to this schema.
   },
   "starting_cash": 0.0,
   "ending_cash": 0.0,
+  "closing_holdings": [ { "ticker": "MSFT", "quantity": 100.0, "unit": "shares", "security_code": null } ],
   "position_transactions": [ ... ],
   "cash_transactions": [ ... ],
   "lot_actions": [ ... ],
@@ -32,6 +33,7 @@ Every parsed statement MUST produce a JSON file conforming to this schema.
 | `period` | yes | `{from, to}` — **always derived from the statement content, never the filename** |
 | `starting_cash` | yes (nullable) | Opening cash balance. `null` when the document has no cash section (e.g. an IBKR Trade Confirmation Report) — pair with a `_note`. |
 | `ending_cash` | yes (nullable) | Closing cash balance. Same nullability rule. |
+| `closing_holdings` | yes | Securities held at period end, from the statement's holdings/positions table: `[{ticker, quantity, unit, security_code}]`. Empty array `[]` when the account holds no securities — that is a real value, not a missing one. **This is what makes positions verifiable without re-reading the PDF** (see Rule 15). |
 | `_note` | optional | Free-text parser note: reconciliation residuals, document-type oddities, filename/content mismatches, duplicates, excluded pending rows. **Use this instead of silently dropping information.** |
 
 ### Account Types
@@ -87,19 +89,80 @@ Each entry represents a corporate action that changes position quantity without 
 | date             | string | Action date in `YYYY-MM-DD` format                  |
 | type             | string | One of: `split`, `bonus`, `merger`, `reorg`, `transfer` |
 | ticker           | string | Ticker symbol affected                              |
+| **quantity**     | number | **REQUIRED. Signed change in share count** caused by this action — see below |
+| unit             | string | `shares` (default) or `par` for bonds/T-bills quoted in face value |
+| security_code    | string | Full exchange-suffixed code where the broker prints one (e.g. `SHOP CT`) — see multi-listing below |
 | description      | string | Original description from the statement             |
 | ratio_from       | number | Split ratio numerator (e.g., 1 in a 4:1 split)     |
 | ratio_to         | number | Split ratio denominator (e.g., 4 in a 4:1 split)   |
+| shares_before    | number | Holding before the action, when the statement shows it (else `null`) |
+| shares_after     | number | Holding after the action, when the statement shows it (else `null`) |
 | currency         | string | ISO 4217 currency code                              |
 
 Lot actions have no cash impact. They change position quantities only.
 
-**The `type` enum is closed.** Use exactly one of the five values — do **not** invent directional
-variants such as `transfer_in` / `transfer_out`. Direction belongs in `description` (e.g.
-`"Client transfer OUT, …"`), which keeps the enum small and downstream grouping reliable.
+### `quantity` is mandatory and signed
+
+**This is the single most important field on a lot action, and the most commonly got wrong.** A lot
+action that changes a share count without recording *by how much* is unusable: positions cannot be
+rolled forward, and the number ends up trapped in prose where no downstream consumer can reach it.
+
+- `quantity` is the **signed delta** applied to the holding: positive adds shares, negative removes them.
+- Shares in → positive. Shares out → negative. **Direction is carried by the sign, not by the type.**
+  The `type` enum stays closed — never invent `transfer_in` / `transfer_out`.
+- For a **split**, `quantity` is the **additional shares created** (the increment), not the resulting
+  position — *unless the broker booked it as a two-leg exchange*, see below.
+- Never write the count only into `description`. If the statement genuinely does not state a quantity,
+  set `quantity: null` and explain why in `description` — but treat that as a last resort, since the
+  count is almost always recoverable from the holdings table.
+
+### Two-leg corporate actions
+
+Brokers frequently book one economic event as **two rows** — a removal of the old position and an
+addition of the new one. Emit **both rows**, each with its own signed `quantity`, so they net correctly:
+
+```
+{ "type": "split", "ticker": "ANET", "quantity": -50,  "description": "Forward Split … (50.0000)" }
+{ "type": "split", "ticker": "ANET", "quantity": 200, "description": "Forward Split ANET … 200.0000" }   // nets +150
+```
+
+**Read each leg's quantity literally.** In a two-leg booking the positive leg is often the **full
+post-split position**, not the increment — the increment convention applies only to single-row splits.
+Assuming "quantity on a split row = additional shares" across the board silently multiplies positions.
+Where the broker uses a distinct symbol for the retired lot (e.g. `ANET.OLD`), keep it as printed and
+record the relationship in `description`; consumers alias it back.
+
+### Do not double-book a disposal
+
+Some events appear **both** as a trade and as a corporate action. Counting both removes the position twice.
+
+| Event | Where it belongs | Do NOT also emit |
+|---|---|---|
+| Bond / T-bill maturity or full call | `position_transactions` as a `sell` at par (+ cash) | a `lot_action` for the same redemption |
+| Cash merger where the broker books the surrender as a sale | the `sell` trade + cash proceeds | a duplicate `merger` lot_action for the same shares |
+
+Emit the corporate action **only** when the share movement is not already captured by a trade. When
+both representations exist on the statement, prefer the trade and explain the choice in `_note`.
+
+### Other quantity traps
+
+- **Cash-in-lieu of fractional shares**: a merger may deliver e.g. 6.250 shares with 0.250 immediately
+  cashed out. If the fractional disposal is booked as a trade, the lot action must carry the **gross**
+  6.250 — using the statement's *net* 6.000 removes the fraction twice. Check the Realized Gain/(Loss)
+  section to see which convention the statement uses.
+- **Ticker changes / renames** (e.g. `SQ` → `XYZ`) move no shares but split one holding across two
+  symbols. Emit a `reorg` lot_action with `quantity: 0`, the old symbol in `ticker` and the new one in
+  `description`, so consumers can alias them. Without it the roll-forward breaks on both symbols.
+- **Multi-listed securities**: the same ISIN may trade as separate positions on different exchanges
+  (e.g. `SHOP CT` Toronto, `SHOP UN` NYSE, `SHOP UQ` Nasdaq), each with its own quantity and
+  transaction reference. Keep them distinct via `security_code` — **never merge on ISIN**.
+- **Mergers are not always 1:1.** Record the surrendered and received quantities exactly as printed
+  (e.g. 100 shares out, 103 in). Do not "correct" an asymmetry into a clean ratio.
+- **A merger may have only one leg.** An all-cash acquisition removes the position with no security
+  received — emit the negative leg alone plus the cash credit.
 
 **Unknown ratios**: when a statement reports a split by the *quantity credited* without printing the
-ratio, set `ratio_from`/`ratio_to` to `null` and put the share count in `description`. Prefer a
+ratio, set `ratio_from`/`ratio_to` to `null` and keep the share count in `quantity`. Prefer a
 statement-grounded `null` over an inferred ratio; only fill the ratio when the document states it or
 the pre/post holdings make it unambiguous.
 
@@ -127,3 +190,13 @@ credit for the consideration. There is no `merger` type in the cash enum — use
 12. **Never derive an amount's sign from its transaction type.** Take it from the statement's own signal — the Debit/Credit column, parentheses, an explicit minus, or the running-balance delta. Interest can be charged, fees can be reversed, and transfers go both directions.
 13. **Exclude pending/unsettled activity.** Rows outside the settled closing balance ("Pending / Open Activity", "Pending settlement transactions") have not occurred yet. They either settle next period — where they are recorded — or never post at all. Including them breaks reconciliation and double-counts.
 14. **An empty statement is a valid parse.** Quiet or dormant periods may have no transaction section at all. Emit empty arrays with correct metadata and balances; do not treat it as a failure or skip the file.
+15. **Position reconciliation** — the share-count counterpart to Rule 9, and it must hold per ticker:
+
+    `previous closing_holdings[ticker] + sum(buys) − sum(sells) + sum(lot_actions[].quantity) = closing_holdings[ticker]`
+
+    This is the check that makes `lot_actions.quantity` load-bearing, and it is why the field is
+    mandatory. Validate it against the **previous statement's** `closing_holdings` for the same
+    account; for an account's first statement the opening position is zero unless the statement says
+    otherwise. A break is nearly always one of: a missing lot action, a lot action with the quantity
+    left in prose, a double-booked disposal, a two-leg split read as a single-leg one, a ticker change,
+    or two listings of the same security merged. Bonds reconcile in par, not shares.

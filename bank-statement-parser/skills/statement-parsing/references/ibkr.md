@@ -234,6 +234,25 @@ The Cash Report lists this under "Bond Interest Paid and Received" (positive whe
 5. **Corporate action date vs. event date**: Bond redemptions may have a Date/Time in the prior month (e.g., 2026-01-30) but a Report Date in the current month (e.g., 2026-02-02). Use the Report Date.
 6. **Bond coupon + redemption same day**: When a bond matures, both the final coupon payment and the redemption proceeds appear in the same statement.
 7. **Stock splits / corporate actions**: stock splits, mergers, and other corporate actions that change position quantity without a trade are extracted as `lot_actions` (not position_transactions). Bond maturities/redemptions remain as `sell` trades. Confirmed in Epoch 2: NVDA 10-for-1 (2024-06-10) and ANET 4-for-1 (2024-12-04), both appearing in the **Corporate Actions** section with no cash impact.
+
+   **Always capture the Quantity column into `lot_actions.quantity` (signed).** IBKR prints it on every
+   Corporate Actions and Transfers row; leaving it in the description makes positions unreconcilable.
+
+   **Split quantity convention is NOT uniform — read each row literally:**
+   - Most splits print the **additional** shares only. A 4-for-1 on a 100-share holding prints `+300`,
+     taking the position to 400. Verified across AAPL, GOOGL, TSLA, SHOP, NVDA and BYDDY splits.
+   - **The ANET 4-for-1 (2024-12-04) is booked as an ISIN exchange**, i.e. two rows: `ANET.OLD -100`
+     (old ISIN `US0404131064`) and `ANET +400` (new ISIN `US0404132054`). Here the positive leg is the
+     **full post-split position**, not the increment; the pair nets `+300`. Emit both rows with their
+     printed signed quantities. Treating the positive leg as "additional shares" inflates the position ~4x.
+
+8. **Never emit a lot_action for a bond redemption or a merger surrender that is already a trade.**
+   IBKR books "Full Call / Early Redemption" and Treasury bill maturities in the Corporate Actions
+   section *and* as `sell` trades at par. Likewise the ZNGA cash-and-stock merger surrender appears as
+   a sale for the cash consideration. Record these as trades only — emitting the corporate action too
+   removes the position twice. Observed duplicates: 3 Treasury full-calls, 1 T-bill maturity, and one
+   cash-and-stock merger surrender. The **received** leg of a merger (the acquirer's shares credited,
+   often a fractional quantity) is a genuine lot_action and must still be emitted.
 8. **Account transfers / consolidation**: positions moved to another IBKR account appear as internal transfers with a market value but **no cash proceeds** — record them as `transfer` lot_actions, never as sells. Any accompanying cash movement is a separate `withdrawal`/`deposit` in the ledger. Observed: 17 positions (16 stocks + 1 bond) transferred out to a successor account over two dates in the same month, alongside two separate cash transfers out. The transferred market value must never enter the cash ledger.
 9. **One person, several accounts**: an owner may hold multiple IBKR accounts (e.g. an individual `UXXXXXXX` and a joint `UYYYYYYY`) whose statements sit side by side in the same folder. Always take `account_id` from the Account Information table, never from the folder or filename, and never merge two accounts into one record.
 10. **Statement period may end mid-month**: a closing/transitional statement can end on an arbitrary date (e.g. 2021-03-03 rather than 2021-03-31). Use the printed period verbatim rather than normalising to month boundaries.

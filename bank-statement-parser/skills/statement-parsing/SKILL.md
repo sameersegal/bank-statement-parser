@@ -31,6 +31,14 @@ These hold for every broker and override any convenient-looking shortcut:
    duplicate, a document that isn't the type it claims — all of it goes in `_note`.
 7. **Keep deposit accounts separate from brokerage accounts.** If one PDF covers both (see DBS),
    emit two records with distinct `account_type`s rather than merging them.
+8. **Every quantity goes in a field, never only in prose.** A corporate action or transfer that moves
+   shares MUST carry a signed `lot_actions.quantity`; a description reading "…-1,234 XYZ…" is not
+   extracted data. This was a real production failure: 157 of 160 lot actions stored their share count
+   only in free text, making positions impossible to roll forward until every affected statement was
+   re-parsed. Direction is carried by the **sign**, not by inventing new `type` values.
+9. **Capture the closing holdings table.** Record `closing_holdings` on every statement. Without it,
+   positions can only be verified by re-reading PDFs later — and quantities that were never captured
+   cannot be checked at all.
 
 ## Input Resolution
 
@@ -74,7 +82,15 @@ Use the Read tool to read the PDF file. Then extract:
 1. **Account metadata**: broker name, account ID, statement period (from/to dates), starting/ending cash
 2. **Position transactions**: all buy/sell trades — capture date, type (buy/sell), ticker, quantity, price, amount, currency
 3. **Cash transactions**: a complete cash ledger — includes dividends, interest, fees, deposits, withdrawals, forex, taxes, AND the cash impact of every trade (buy/sell). Each position transaction must have a corresponding cash transaction entry with the same amount (dates may differ by a settlement lag).
-4. **Lot actions**: corporate actions that change positions without a trade — stock splits, bonus issues, mergers, class reorganizations. No cash impact.
+4. **Lot actions**: corporate actions and in-kind movements that change positions without a trade —
+   stock splits, bonus issues, mergers, reorganizations, ticker changes, and share transfers in/out.
+   No cash impact. **Each one requires a signed `quantity`** (positive adds shares, negative removes
+   them). If you cannot see the number on the row, get it from the holdings table before and after —
+   do not leave it in the description. Watch for events booked as *two* legs (a removal plus an
+   addition), and for disposals that are already booked as a trade (bond maturities, some merger
+   surrenders) which must **not** be emitted a second time as a lot action.
+5. **Closing holdings**: the positions table at period end — ticker, quantity, and unit (`par` for
+   bonds). An account holding nothing yields `[]`.
 
 Follow the broker reference guidance for locating sections and interpreting formats.
 
@@ -115,6 +131,14 @@ After writing, perform basic validation:
   — **per currency** on multi-currency accounts; each currency must balance independently
 - Every position_transaction has a matching cash_transaction (same amount and type; dates may differ
   by a settlement lag, and on split brokerage/deposit accounts the match is in the sibling record)
+- **Every lot_action has a non-null signed `quantity`** — a lot action without one is an incomplete
+  parse, not a valid record
+- **Position reconciliation**: `prior closing_holdings + buys − sells + sum(lot_actions.quantity) =
+  closing_holdings`, per ticker (par for bonds). When parsing a series, chain each statement's
+  `closing_holdings` into the next as the opening position; the first statement of an account opens
+  at zero unless stated otherwise. A break points to a missing or unquantified lot action, a
+  double-booked disposal, a two-leg split misread, a ticker change, or merged listings — fix the
+  cause, never plug the difference.
 
 **On a reconciliation failure**, re-read the statement for missed entries first — most failures are a
 sign error (see Core Rule 2) or a pending row wrongly included (Core Rule 3). If a residual of ±0.01

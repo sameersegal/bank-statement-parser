@@ -192,10 +192,16 @@ sign from the Debit/Credit column — see [Amount Signs](#amount-signs-critical)
 |---------------------------|---------------|-------|
 | Sell | `sell` → `position_transaction` | Has quantity, price, settlement amount |
 | Buy | `buy` → `position_transaction` | Has quantity, price, settlement amount |
-| Client transfer IN | `transfer` → `lot_action` | No price, no settlement; shares transferred in |
-| Client transfer OUT | `transfer` → `lot_action` | No price, no settlement; shares transferred out |
+| Client transfer IN | `transfer` → `lot_action` | No price, no settlement; shares in → **positive** `quantity` |
+| Client transfer OUT | `transfer` → `lot_action` | No price, no settlement; shares out → **negative** `quantity` |
 | Receive free of payment | `transfer` → `lot_action` | Inbound in-kind delivery (FOP); same treatment as Client transfer IN |
+| Delivery free of payment | `transfer` → `lot_action` | Outbound in-kind delivery; negative `quantity` |
 | Split | `split` → `lot_action` | Quantity credited, **no price and no settlement amount**. See below. |
+
+**DBS prints no sign on Equity Transaction rows** — the Quantity column is unsigned for both directions.
+Derive the sign from the Transaction Type (IN/receive → positive, OUT/delivery → negative) and confirm
+against the holding in "Your Total Equity" before and after. Always populate `lot_actions.quantity`;
+never leave the count only in the description.
 
 ## Corporate Actions in Equity Transactions
 
@@ -205,8 +211,35 @@ Splits appear as an Equity Transaction row with Transaction Type `Split`, a **qu
 trade. Map to a `split` lot_action with no cash impact.
 
 **The statement usually does not print the ratio.** Set `ratio_from`/`ratio_to` to `null` and record
-the credited share count in the description, unless the ratio is unambiguous from the holdings
+the credited share count in `quantity`, unless the ratio is unambiguous from the holdings
 (pre/post quantity in "Your Total Equity"). Prefer statement-grounded nulls over inferred ratios.
+
+DBS splits print the **additional** shares credited — a 4-for-1 on a 100-share holding prints `+300`,
+taking the position to 400. Always confirm the increment against the pre/post holding in
+"Your Total Equity". Verified across TTD, NVDA, ISRG and SHOP splits.
+
+### Multi-listed securities — never merge on ISIN
+
+The same ISIN can be held as **separate positions on different exchanges**, each with its own
+quantity, holding row and transaction reference. Shopify (ISIN `CA82509L1076`) appears as
+`SHOP CT` (Toronto), `SHOP UN` (NYSE) and `SHOP UQ` (Nasdaq) — the June-2022 10-for-1 split posted as
+**two independent rows with distinct transaction references**, each crediting the increment for its
+own listing. Keep the full exchange-suffixed code in `security_code` and treat each listing as its own position.
+Merging them corrupts both the split and the transfer arithmetic. Note also that a Toronto row may
+settle in **CAD** while every other row on the page is USD.
+
+### Merger quirks seen in DBS statements
+
+- **Not always 1:1.** The June-2020 Match Group reorganisation printed the surrendered leg labelled
+  with the raw ISIN `US57665R1068` and issuer "Match Group Inc/old" (no suffixed ticker), and a
+  slightly **larger** received quantity as `MTCH UW` — e.g. 100 out, 103 in. Record both legs exactly
+  as printed; do not normalise the asymmetry away.
+- **A cash acquisition has only one leg.** The November-2022 Zendesk buyout printed a single `Merger`
+  row removing the entire `ZEN UN` position with no security received; the consideration arrives as a
+  cash credit (type `other`). Confirm the direction from the holdings table — the position is present
+  the prior month and absent afterwards.
+- DBS prints no sign on merger rows either; infer direction from the old/new issuer naming and verify
+  against "Your Total Equity".
 
 Observed: TTD 10-for-1 (Jun 2021), NVDA 4-for-1 (Jul 2021), ISRG 3-for-1 (Oct 2021),
 SHOP 10-for-1 (Jun 2022, hitting **both** SHOP CT and SHOP UN lots), NVDA 10-for-1 (Jun 2024).

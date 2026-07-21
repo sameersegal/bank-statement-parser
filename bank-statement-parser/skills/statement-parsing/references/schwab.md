@@ -207,7 +207,29 @@ and note the processed-date grouping in `_note`.
 
 ## Edge Cases
 
-1. **Stock splits**: Category "Other Activity", Action "Stock Split" — no cash impact, no amount. Extract as a `lot_action` with type `split`. Parse ticker from Symbol/CUSIP and description from the Description column.
+1. **Stock splits**: Category "Other Activity", Action "Stock Split" — no cash impact, no amount. Extract as a `lot_action` with type `split`. Parse ticker from Symbol/CUSIP and description from the Description column. **Always capture the Quantity column into `lot_actions.quantity` (signed)** — never leave the share count only in the description.
+
+   Single-row splits print the **additional** shares — a 5-for-1 on a 100-share holding prints `+400`,
+   taking it to 500. Verified across TSLA, TTD, NVDA, ANET, AMZN, SHOP, GOOGL, BYDDY and NFLX splits,
+   at holding sizes from single shares to five figures.
+
+   **"Forward Split" is often booked as TWO rows** — a removal of the pre-split lot (Symbol/CUSIP
+   column **blank**, quantity in parentheses) and an addition of the post-split lot. Example, a
+   4-for-1: `(50.0000)` then `200.0000`, netting `+150`. Emit **both** rows as `split` with their
+   signed quantities. The blank-symbol negative row is **not** a transfer out — infer its ticker from
+   the paired addition.
+
+2. **Cash-in-lieu rows have a BLANK Quantity column** — the dollar figure sits in Total Amount. Check
+   the Realized Gain/(Loss) section to see whether the fraction was already netted out of the holding.
+   Observed on a cash-and-stock merger: the acquirer's shares were delivered with a fractional
+   remainder cashed in lieu, and the merger row printed the **net** whole-share figure while the
+   fractional disposal was booked separately. Whichever convention the statement uses, the lot_action
+   and the trades together must net to the holding — record the gross when the fraction is separately
+   disposed of.
+
+3. **Ticker changes** (e.g. SQ → XYZ for Block Inc) move no shares but split one position across two
+   symbols in the trade history. Emit a `reorg` lot_action with `quantity: 0` naming both symbols, or
+   positions will break on both.
 2. **Industry Fee on sales**: The Charges/Interest column may show a small fee (e.g., $0.01). This is already deducted from the Amount column. Do NOT record as a separate fee.
 3. **Wire fee waivers**: Always paired with the fee, netting to zero. Record both individually.
 4. **Multiple accounts**: Schwab statements are per-account. Different accounts (individual vs joint) may have different features (e.g., DRIP enabled only on the joint account).

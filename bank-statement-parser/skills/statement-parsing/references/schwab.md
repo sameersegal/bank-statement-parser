@@ -1,6 +1,21 @@
 # Charles Schwab Statement Reference
 
-> Last updated: Epoch 1 (2026-03-24) — based on 8 training PDFs (Sep–Dec 2025, 2 accounts)
+> Last updated: Epoch 2 (2026-07-20) — Epoch 1 based on 8 training PDFs (Sep–Dec 2025, 2 accounts);
+> Epoch 2 adds learnings from a ~150-statement production run (FY2019-20 → FY2025-26) across
+> individual, joint, DRIP, and wound-down accounts.
+
+## ⚠️ Period comes from the statement, never the filename
+
+Two real failure modes seen in production:
+
+1. **Swapped contents**: a file named for April contained the May statement and vice versa. The
+   parsed periods were correct only because they were read from the document header.
+2. **Quarterly statements**: a file dated `2022-06-30` covered **April 1 – June 30**, not just June.
+   This looked like "missing April and May statements" until the period was read from the body — a
+   coverage gap that did not actually exist.
+
+Always parse the "Statement Period" from the header, and reconcile apparent gaps against parsed
+periods before reporting them. Record any filename/content mismatch in `_note`.
 
 ## Statement Structure
 
@@ -30,7 +45,7 @@ Statements with more transactions (sales, withdrawals, etc.) may be 8 pages.
 
 ## Number Formats
 
-- **Thousands separator**: comma (e.g., `254,582.80`)
+- **Thousands separator**: comma (e.g., `123,456.78`)
 - **Decimal separator**: period
 - **Negative amounts**: parentheses (e.g., `(87.86)` means -87.86)
 - **Currency**: Always USD, amounts shown with `$` prefix in summary sections but plain numbers in Transaction Details
@@ -91,6 +106,10 @@ This is the critical mapping from Schwab's Category/Action columns to our schema
 | Category | Action | → Schema | Notes |
 |----------|--------|----------|-------|
 | Other Activity | Stock Split | `lot_action` type=split | Extract ticker and description; no cash impact |
+| Other Activity | Forward Split | `lot_action` type=split | Same as Stock Split. Often printed as **two lines** (old lot removed, new lot added) — record as **one** split, not two |
+| Other Activity | Journaled Shares | `lot_action` type=transfer | In-kind transfer to/from another Schwab account; **no cash impact** |
+| Other Activity | Security Transfer | `lot_action` type=transfer | Same treatment as Journaled Shares |
+| Other Activity | Adjust Position | `tax` (usually) | NRA withholding **corrections/refunds** — see below |
 
 ## Extracting Position Transactions
 
@@ -114,7 +133,7 @@ This is the critical mapping from Schwab's Category/Action columns to our schema
 ### T-Bill Purchases
 - **ticker**: Symbol/CUSIP column (e.g., `912797SC2`)
 - **date**: MM/DD → combine with year
-- **quantity**: Par value (e.g., `254,000.0000`)
+- **quantity**: Par value (e.g., `100,000.0000`)
 - **price**: Price as percentage of par (e.g., `99.1420`)
 - **amount**: Amount column (negative)
 - **type**: `buy`
@@ -161,6 +180,31 @@ The Transactions Summary shows: Purchases = -(Dividends/Interest), so cash balan
 
 A "Pending / Open Activity" section may appear showing unsettled dividends. These are NOT included in the account value or cash balance. **Do NOT extract pending transactions** — only extract settled transactions from the "Transaction Details" section.
 
+**A pending item may never post at all.** One December statement listed a pending dividend payable
+in early January; the January statement's income summary and transaction detail showed interest only —
+it never appeared. So do not "carry forward" pending rows on faith: record them only when they
+actually show up as settled, and never pre-book them to make a balance work.
+
+**Trade-date vs settlement-date across a period boundary.** A purchase with a trade date of 07/29 that
+settles 08/01 belongs to the **July** statement under the trade-date convention, even though the cash
+moves in August. Expect a trade whose date precedes the statement period and reconcile against the
+statement's own Transactions Summary rather than assuming the trade is misfiled.
+
+## Adjust Position — NRA withholding corrections
+
+Schwab periodically reprocesses non-resident withholding. These appear as `Other Activity` /
+`Adjust Position` rows and are genuinely confusing:
+
+- They can carry **transaction dates spanning several prior months** while all being *processed* on a
+  single date (e.g. 13 corrections dated Jan–May, all processed 05/31).
+- They may be **refunds** (positive) as well as additional withholding (negative).
+- On sales in the same period, the sale `Amount` may be shown **net of tax withheld**, with the tax
+  refunded separately — so the trade amount and the cash entry can look inconsistent until the
+  adjustments are included.
+
+Record each as a `tax` cash_transaction with its stated transaction date, preserve the sign as shown,
+and note the processed-date grouping in `_note`.
+
 ## Edge Cases
 
 1. **Stock splits**: Category "Other Activity", Action "Stock Split" — no cash impact, no amount. Extract as a `lot_action` with type `split`. Parse ticker from Symbol/CUSIP and description from the Description column.
@@ -169,3 +213,9 @@ A "Pending / Open Activity" section may appear showing unsettled dividends. Thes
 4. **Multiple accounts**: Schwab statements are per-account. Different accounts (individual vs joint) may have different features (e.g., DRIP enabled only on the joint account).
 5. **Dates spanning months**: Interest descriptions may show date ranges crossing month boundaries (e.g., "08/28-09/28" in a September statement).
 6. **T-bill CUSIP as ticker**: T-bills use CUSIP (e.g., `912797SC2`) rather than a human-readable ticker.
+7. **T-bill maturity proceeds include interest**: a bill redeeming at par pays out par + accrued interest in a **single** line, so the redemption amount exceeds the face value. Record the full cash amount and identify the interest component in the description so income can be separated later.
+8. **Quarterly and multi-month statements**: some periods are issued quarterly (Apr–Jun in a file dated 06-30) or spanning two months (Jan–Feb). Never assume one statement equals one month.
+9. **Account wind-down**: when an account is closed out, the full portfolio is journaled out as `lot_action` transfers (no cash impact) and the cash swept out as a `withdrawal` — e.g. 8 securities journaled to a successor account plus a single cash journal, leaving a sub-dollar residual. The securities' market value can be orders of magnitude larger than the cash journal; it is **not** cash and must not enter the ledger.
+10. **Dormant statements**: after a wind-down the account still issues monthly statements with a static residual, no positions, and **no Transaction Details section at all**. These are valid empty parses — beginning cash equals ending cash.
+11. **DRIP triples net to zero**: dividend (+), NRA tax (−), reinvestment buy (−) on the same date leave cash unchanged. Record all three; do not collapse them.
+12. **Same statement can appear under two fiscal years**: a Jan–Mar statement may be filed in both the ending and beginning FY folders. Identical parses in two places are expected, not duplicates to dedupe blindly — key on account + period.

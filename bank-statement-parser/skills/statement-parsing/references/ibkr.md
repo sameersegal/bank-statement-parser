@@ -1,6 +1,28 @@
 # Interactive Brokers (IBKR) Statement Reference
 
-> Last updated: Epoch 1 (2026-03-24) — based on 4 training + 2 test PDFs (Sep 2025–Feb 2026)
+> Last updated: Epoch 2 (2026-07-20) — Epoch 1 based on 4 training + 2 test PDFs (Sep 2025–Feb 2026);
+> Epoch 2 adds learnings from a multi-year production run (FY2020-21 → FY2025-26) covering
+> annual statements, trade confirmation reports, stock trades, splits, and an account consolidation.
+
+## ⚠️ Document Type — check this before parsing
+
+Not every IBKR PDF is an Activity Statement, and **the filename does not tell you which is which.**
+
+| Document | How to identify | Cash reconciliation |
+|---|---|---|
+| **Activity Statement** | Has a **Cash Report** section with Starting/Ending Cash | Yes — full ledger |
+| **Trade Confirmation Report** | Trades only; **no Cash Report** | **Not possible** — set `starting_cash`/`ending_cash` to `null` and explain in `_note` |
+| Supplementary reports (MTM Summary, Realized Summary, Dividend Report) | Single-topic report | Duplicate data — normally skip |
+
+**The filename lies — read the Statement Period from inside the document.** A real case:
+`UXXXXXXX_20220331_20220331.pdf` looks like a single-day snapshot but is the **full-year** Activity
+Statement for 2021-04-01 → 2022-03-31, Cash Report included. Meanwhile
+`UXXXXXXX_20210401_20220331.pdf` — whose name spans the whole year — is only a Trade Confirmation
+Report with no cash ledger. The naming is effectively **inverted** relative to content.
+
+Practical consequence: when a folder holds both, the `*_YYYYMMDD_YYYYMMDD.pdf` file with *identical*
+start and end dates is often the authoritative full-period statement. Parse both, take the cash ledger
+from whichever actually has the Cash Report, and note in `_note` that the other is a redundant subset.
 
 ## Statement Structure
 
@@ -47,7 +69,7 @@ These are the bold section headers to look for:
 
 ## Number Formats
 
-- **Thousands separator**: comma (e.g., `553,410.91`)
+- **Thousands separator**: comma (e.g., `123,456.78`)
 - **Decimal separator**: period
 - **Negative amounts**: leading minus sign (e.g., `-206.12`). No parentheses observed.
 - **Bond prices**: percentage of face value (e.g., `99.4790` means 99.479%)
@@ -78,6 +100,20 @@ The **Cash Report** section under "Base Currency Summary" provides line-item tot
 
 **Always verify**: `Starting Cash + sum(cash_transactions[].amount) = Ending Cash` — cash_transactions alone must balance.
 
+### Penny-rounding tolerance
+
+IBKR rounds each displayed line independently of its section totals, so a **±0.01 residual can be the
+statement's own arithmetic, not a missed entry.** Observed on a full-year statement: the parsed ledger
+summed to one cent *below* the stated Ending Cash, while the Cash Report's own printed lines summed to
+one cent *above* it — because the displayed per-trade proceeds and commissions were each rounded a
+cent away from the section totals they roll up into. Three mutually inconsistent totals, all printed
+by the broker.
+
+Before accepting a residual, verify **every** Cash Report section total (Dividends, Interest,
+Withholding Tax, Commissions, Trades Purchase/Sales, Other Fees) ties to your parsed sums. If each
+section ties and only the grand total is off by a cent, keep the statement's stated Ending Cash and
+record the residual and its cause in `_note`. Never fabricate a balancing entry.
+
 ## Extracting Position Transactions (Trades)
 
 Look for the **Trades** section. It has subsections:
@@ -99,7 +135,17 @@ Symbol | Date/Time | Quantity | T. Price | C. Price | Proceeds | Comm/Fee | Basi
 Same format as Bonds. May have multiple partial executions for the same security.
 
 ### Stocks
-Not observed in training data yet, but expected same tabular format.
+Same tabular format as Bonds (confirmed in Epoch 2 — a single fiscal year carried 37 stock trades
+alongside Treasury purchases):
+
+```
+Symbol | Date/Time | Quantity | T. Price | C. Price | Proceeds | Comm/Fee | Basis | Realized P/L | MTM P/L | Code
+```
+
+- **quantity**: share count — **negative for sells**, positive for buys. Use the absolute value in
+  `position_transactions.quantity` and let `type` carry the direction.
+- **amount**: the Proceeds column (already signed: negative = purchase, positive = sale)
+- **Commission**: the Comm/Fee column → a separate negative `fee` cash_transaction on the same date
 
 ## Extracting Cash Transactions
 
@@ -187,4 +233,9 @@ The Cash Report lists this under "Bond Interest Paid and Received" (positive whe
 4. **No Fees section**: When no fees occurred, the Fees section is absent.
 5. **Corporate action date vs. event date**: Bond redemptions may have a Date/Time in the prior month (e.g., 2026-01-30) but a Report Date in the current month (e.g., 2026-02-02). Use the Report Date.
 6. **Bond coupon + redemption same day**: When a bond matures, both the final coupon payment and the redemption proceeds appear in the same statement.
-7. **Stock splits / corporate actions**: If encountered, stock splits, mergers, or other corporate actions that change position quantity without a trade should be extracted as `lot_actions` (not position_transactions). Bond maturities/redemptions remain as `sell` trades. No stock split examples observed in training data yet.
+7. **Stock splits / corporate actions**: stock splits, mergers, and other corporate actions that change position quantity without a trade are extracted as `lot_actions` (not position_transactions). Bond maturities/redemptions remain as `sell` trades. Confirmed in Epoch 2: NVDA 10-for-1 (2024-06-10) and ANET 4-for-1 (2024-12-04), both appearing in the **Corporate Actions** section with no cash impact.
+8. **Account transfers / consolidation**: positions moved to another IBKR account appear as internal transfers with a market value but **no cash proceeds** — record them as `transfer` lot_actions, never as sells. Any accompanying cash movement is a separate `withdrawal`/`deposit` in the ledger. Observed: 17 positions (16 stocks + 1 bond) transferred out to a successor account over two dates in the same month, alongside two separate cash transfers out. The transferred market value must never enter the cash ledger.
+9. **One person, several accounts**: an owner may hold multiple IBKR accounts (e.g. an individual `UXXXXXXX` and a joint `UYYYYYYY`) whose statements sit side by side in the same folder. Always take `account_id` from the Account Information table, never from the folder or filename, and never merge two accounts into one record.
+10. **Statement period may end mid-month**: a closing/transitional statement can end on an arbitrary date (e.g. 2021-03-03 rather than 2021-03-31). Use the printed period verbatim rather than normalising to month boundaries.
+11. **Dormant post-consolidation shells**: after positions are transferred out, an account can persist for years with a small residual balance, no trades, and no cash flows. Parse these as valid empty statements carrying the residual forward.
+12. **Bond full call / early redemption**: recorded as a `sell` at par (price 100.0); the final coupon and the redemption proceeds land in the same statement. Purchase accrued interest is a negative `interest` entry at buy time.
